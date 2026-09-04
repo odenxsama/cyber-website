@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Financial Crime Intelligence — Withdrawal Prediction</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Palette 1: Cyberpunk Neon & Obsidian */
+    --bg: #f8fafc;
+    --panel: #FFFFFF;
+    --panel-2: #eff6ff;
+    --border:#cbd5e1;
+    --border-soft: #e2e8f0;
+    --text: #0f172a;
+    --text-dim: #64748b;
+    --text-mid: #334155;
+    --cyan: #0284c7;
+    --cyan-dim: #0e3a44;
+    --red: #dc2626;
+    --red-dim: #4a1a26;
+    --amber: #FBBF24;
+    --amber-dim: #4a3b14;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(6,182,212,0.06), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(244,63,94,0.05), transparent 40%);
+  }
+  .mono{ font-family: 'IBM Plex Mono', monospace; }
+
+  /* ---------- Main grid ---------- */
+  .layout{
+    display:grid;
+    grid-template-columns: 300px 1fr 300px;
+    height: 100vh;
+    min-height: 560px;
+  }
+  .panel{
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    background: var(--bg);
+  }
+  .panel:last-child{ border-right:none; }
+  .panel-head{
+    padding:12px 16px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel-2);
+  }
+  .panel-title{ font-size:11.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-mid); font-family:'IBM Plex Mono',monospace; font-weight:600;}
+  .panel-count{ font-size:11px; color:var(--cyan); font-family:'IBM Plex Mono',monospace;}
+
+  /* Single complaint card */
+  .complaint-single{ flex:1; padding:18px 16px; overflow-y:auto; }
+  .card{
+    background: var(--panel); border:1px solid var(--border);
+    padding:16px; border-radius:2px;
+  }
+  .complaint-top{ display:flex; justify-content:space-between; align-items:baseline; }
+  .complaint-id{ font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--text-dim); }
+  .complaint-amt{ font-family:'IBM Plex Mono',monospace; font-size:16px; font-weight:600; color:var(--text); }
+  .complaint-desc{ font-size:13px; color:var(--text-mid); margin-top:12px; line-height:1.5; }
+  .complaint-meta{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; align-items:center; }
+  .tag{
+    font-size:10px; padding:3px 7px; border:1px solid var(--border-soft);
+    font-family:'IBM Plex Mono',monospace; color:var(--text-dim); letter-spacing:0.03em;
+  }
+  .tag.risk-high{ color:var(--red); border-color: rgba(244,63,94,0.45); background: rgba(244,63,94,0.08); }
+  .tag.risk-med{ color:var(--amber); border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.06); }
+  .tag.risk-analyzed{ color:var(--cyan); border-color: rgba(6,182,212,0.45); background: rgba(6,182,212,0.08); }
+  .complaint-filed{ margin-top:14px; font-size:11px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; }
+
+  .complaint-controls{
+    display:flex; border-top:1px solid var(--border);
+  }
+  .nav-btn{
+    flex:1; padding:12px; text-align:center; cursor:pointer;
+    background:var(--panel-2); color:var(--text-mid); border:none;
+    font-family:'IBM Plex Mono',monospace; font-size:12px; letter-spacing:0.03em;
+    transition: background .15s, color .15s;
+  }
+  .nav-btn:hover{ background: var(--cyan-dim); color:var(--cyan); }
+  .nav-btn:first-child{ border-right:1px solid var(--border); }
+
+  /* Map panel */
+  .map-panel{ position:relative; }
+  #map{ flex:1; width:100%; }
+  .map-overlay-legend{
+    position:absolute; bottom:14px; left:14px; z-index:500;
+    background:rgba(15,23,42,0.92); border:1px solid var(--border);
+    padding:9px 12px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-mid);
+  }
+  .legend-row{ display:flex; align-items:center; gap:7px; margin-top:4px; }
+  .legend-row:first-child{ margin-top:0; }
+  .legend-dot{ width:9px; height:9px; border-radius:50%; }
+  .map-status{
+    position:absolute; top:14px; left:14px; z-index:500;
+    background:rgba(15,23,42,0.94); border:1px solid var(--border);
+    padding:10px 14px; max-width:300px;
+  }
+  .map-status-title{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.06em;}
+  .map-status-body{ font-size:12.5px; color:var(--text-mid); margin-top:6px; }
+  .scanning{ display:flex; align-items:center; gap:8px; color:var(--cyan); font-family:'IBM Plex Mono',monospace; font-size:11.5px;}
+  .scan-bar{ width:100%; height:2px; background:var(--border-soft); margin-top:8px; overflow:hidden; position:relative;}
+  .scan-bar::after{
+    content:''; position:absolute; left:-40%; top:0; height:100%; width:40%;
+    background:linear-gradient(90deg, transparent, var(--cyan), transparent);
+    animation: scan 1.1s linear infinite;
+  }
+  @keyframes scan{ 0%{left:-40%;} 100%{left:100%;} }
+
+  /* Prediction panel */
+  .pred-list{ overflow-y:auto; flex:1; padding:6px 0; }
+  .pred-item{
+    padding:12px 16px; border-bottom:1px solid var(--border-soft);
+  }
+  .pred-rank{ display:flex; align-items:center; gap:9px; }
+  .rank-num{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim); width:16px;}
+  .pred-name{ font-size:12.5px; font-weight:600; flex:1; }
+  .pred-pct{ font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--cyan); font-weight:600;}
+  .pred-bar-track{ height:4px; background:var(--border-soft); margin-top:7px; }
+  .pred-bar-fill{ height:100%; background:var(--cyan); width:0%; transition: width .8s cubic-bezier(.2,.8,.2,1); }
+  .pred-sub{ display:flex; justify-content:space-between; margin-top:6px; font-size:11px; color:var(--text-dim); }
+  .empty-state{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:100%; padding:30px; text-align:center; color:var(--text-dim); gap:8px;
+  }
+  .empty-state-title{ font-size:12.5px; color:var(--text-mid); font-family:'IBM Plex Mono',monospace;}
+  .empty-state-sub{ font-size:11.5px; max-width:220px; }
+
+  .action-btn{
+    margin:14px 16px; padding:10px; text-align:center;
+    background:var(--cyan); color:#062226; font-weight:600; font-size:12px;
+    font-family:'IBM Plex Mono',monospace; letter-spacing:0.03em; cursor:pointer;
+    border:none; text-transform:uppercase;
+  }
+  .action-btn:disabled{ background:var(--border-soft); color:var(--text-dim); cursor:not-allowed; }
+
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-track{ background:var(--panel-2); }
+  ::-webkit-scrollbar-thumb{ background:var(--border-soft); }
+
+  .leaflet-container{ background:#0F172A !important; }
+  .leaflet-control-attribution{ background:rgba(15,23,42,0.7) !important; color:var(--text-dim) !important; font-size:9px !important;}
+  .leaflet-control-attribution a{ color:var(--text-mid) !important; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- SINGLE ACTIVE COMPLAINT -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Active Complaint</div>
+      <div class="panel-count" id="complaintNav">1 / 6</div>
+    </div>
+    <div class="complaint-single" id="complaintSingle"></div>
+    <div class="complaint-controls">
+      <button class="nav-btn" id="prevBtn">‹ PREV</button>
+      <button class="nav-btn" id="nextBtn">NEXT ›</button>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div class="panel map-panel">
+    <div class="panel-head">
+      <div class="panel-title">Predicted Withdrawal Zones</div>
+      <div class="panel-count">NCR region</div>
+    </div>
+    <div id="map"></div>
+    <div class="map-status" id="mapStatus">
+      <div class="map-status-title">Select a complaint</div>
+      <div class="map-status-body">Run the prediction model to surface likely cash-out locations for the active complaint.</div>
+    </div>
+    <div class="map-overlay-legend">
+      <div class="legend-row"><span class="legend-dot" style="background:var(--red);"></span> High probability (&gt;60%)</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--amber);"></span> Medium probability (30–60%)</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--cyan);"></span> Low probability (&lt;30%)</div>
+    </div>
+  </div>
+
+  <!-- PREDICTIONS -->
+  <div class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Top 3 Predicted ATMs</div>
+      <div class="panel-count" id="predCount">—</div>
+    </div>
+    <div class="pred-list" id="predList">
+      <div class="empty-state">
+        <div class="empty-state-title">NO ACTIVE PREDICTION</div>
+        <div class="empty-state-sub">Run the model on the active complaint to rank the top 3 candidate ATMs by withdrawal likelihood.</div>
+      </div>
+    </div>
+    <button class="action-btn" id="alertBtn" disabled>Dispatch Alert to Top 3 Sites</button>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* ============ MOCK DATA ============ */
+// Base center: Delhi NCR
+const complaints = [
+  {
+    id:'CYB-88213', amount:'₹2,40,000', filedAgo:'12 min ago',
+    desc:'UPI phishing — victim clicked fraudulent KYC-update link, funds routed via 2 mule hops.',
+    bank:'Axis Bank', originLat:28.6139, originLng:77.2090, originName:'Connaught Place, New Delhi',
+    risk:'high', analyzed:false
+  },
+  {
+    id:'CYB-88207', amount:'₹68,500', filedAgo:'34 min ago',
+    desc:'Fake investment app — OTP shared under pretext of "portfolio verification".',
+    bank:'HDFC Bank', originLat:28.4595, originLng:77.0266, originName:'Gurugram Sector 29',
+    risk:'med', analyzed:false
+  },
+  {
+    id:'CYB-88199', amount:'₹5,12,000', filedAgo:'1 hr 05 min ago',
+    desc:'Business email compromise — vendor payment diverted to substitute account.',
+    bank:'ICICI Bank', originLat:28.5355, originLng:77.3910, originName:'Noida Sector 62',
+    risk:'high', analyzed:false
+  },
+  {
+    id:'CYB-88184', amount:'₹31,000', filedAgo:'2 hr 10 min ago',
+    desc:'Loan-app harassment scam, forced UPI transfer to third-party handle.',
+    bank:'SBI', originLat:28.7041, originLng:77.1025, originName:'Model Town, Delhi',
+    risk:'med', analyzed:false
+  },
+  {
+    id:'CYB-88177', amount:'₹94,300', filedAgo:'3 hr 40 min ago',
+    desc:'SIM-swap fraud, net-banking credentials compromised via port request.',
+    bank:'Kotak Mahindra', originLat:28.4089, originLng:77.3178, originName:'Faridabad NIT',
+    risk:'high', analyzed:false
+  },
+  {
+    id:'CYB-88160', amount:'₹18,750', filedAgo:'5 hr 02 min ago',
+    desc:'Fake e-commerce refund scam — remote-access app used to authorize transfer.',
+    bank:'Punjab National Bank', originLat:28.6692, originLng:77.4538, originName:'Ghaziabad, Vaishali',
+    risk:'med', analyzed:false
+  },
+];
+
+// Candidate ATM / branch pool across NCR, each entry: name, lat, lng, bank, avg daily footfall tier
+const atmPool = [
+  {name:'Axis Bank ATM — Nehru Place', lat:28.5487, lng:77.2519, tier:'high'},
+  {name:'HDFC ATM — Lajpat Nagar', lat:28.5677, lng:77.2431, tier:'high'},
+  {name:'ICICI ATM — Rajouri Garden', lat:28.6469, lng:77.1201, tier:'med'},
+  {name:'SBI ATM — Karol Bagh', lat:28.6519, lng:77.1909, tier:'high'},
+  {name:'Kotak ATM — Sector 18, Noida', lat:28.5697, lng:77.3260, tier:'high'},
+  {name:'Axis Bank ATM — DLF Cyber City, Gurugram', lat:28.4949, lng:77.0890, tier:'high'},
+  {name:'PNB ATM — Vaishali, Ghaziabad', lat:28.6503, lng:77.3378, tier:'med'},
+  {name:'HDFC ATM — Faridabad Old City', lat:28.3894, lng:77.3161, tier:'med'},
+  {name:'ICICI ATM — Dwarka Sector 12', lat:28.5921, lng:77.0460, tier:'low'},
+  {name:'SBI ATM — Rohini Sector 7', lat:28.7196, lng:77.1180, tier:'med'},
+  {name:'Kotak ATM — Indirapuram, Ghaziabad', lat:28.6461, lng:77.3722, tier:'low'},
+  {name:'Axis Bank ATM — Saket', lat:28.5245, lng:77.2066, tier:'med'},
+  {name:'HDFC ATM — Noida Sector 62', lat:28.6167, lng:77.3663, tier:'high'},
+  {name:'PNB ATM — Model Town, Delhi', lat:28.7089, lng:77.1935, tier:'med'},
+  {name:'SBI ATM — Sector 29, Gurugram', lat:28.4685, lng:77.0632, tier:'high'},
+];
+
+/* ============ MAP INIT ============ */
+const map = L.map('map', {zoomControl:true, attributionControl:true}).setView([28.58, 77.22], 10.4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+let markers = [];
+let originMarker = null;
+function clearMap(){
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  if(originMarker){ map.removeLayer(originMarker); originMarker = null; }
+}
+
+function riskColor(p){
+  if(p >= 0.6) return getComputedStyle(document.documentElement).getPropertyValue('--red').trim();
+  if(p >= 0.3) return getComputedStyle(document.documentElement).getPropertyValue('--amber').trim();
+  return getComputedStyle(document.documentElement).getPropertyValue('--cyan').trim();
+}
+
+/* ============ PREDICTION ENGINE (mock) ============ */
+function dist(lat1, lng1, lat2, lng2){
+  const R = 6371;
+  const dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function runPrediction(complaint){
+  const tierWeight = {high:1.15, med:1.0, low:0.8};
+  let scored = atmPool.map(atm => {
+    const d = dist(complaint.originLat, complaint.originLng, atm.lat, atm.lng);
+    const seed = (complaint.id + atm.name).split('').reduce((a,c)=>a + c.charCodeAt(0), 0);
+    const jitter = ((seed % 23) / 23) * 0.25;
+    const distScore = Math.max(0, 1 - d / 28);
+    const raw = (distScore * 0.62 + jitter) * tierWeight[atm.tier];
+    return {...atm, distKm: d, raw};
+  });
+  scored.sort((a,b) => b.raw - a.raw);
+  // Only the top 3 candidate ATMs are surfaced
+  const top = scored.slice(0, 3);
+  const maxRaw = top[0].raw;
+  const total = top.reduce((s,x)=>s+x.raw,0);
+  top.forEach(x => { x.prob = Math.min(0.92, (x.raw / total) * 1.55 * (maxRaw)); });
+  top.sort((a,b)=>b.prob - a.prob);
+  return top;
+}
+
+/* ============ SINGLE COMPLAINT DISPLAY + NAV ============ */
+const singleEl = document.getElementById('complaintSingle');
+const navEl = document.getElementById('complaintNav');
+let activeIndex = 0;
+
+function renderSingleComplaint(){
+  const c = complaints[activeIndex];
+  navEl.textContent = (activeIndex+1) + ' / ' + complaints.length;
+  singleEl.innerHTML = `
+    <div class="card">
+      <div class="complaint-top">
+        <span class="complaint-id">${c.id}</span>
+        <span class="complaint-amt">${c.amount}</span>
+      </div>
+      <div class="complaint-desc">${c.desc}</div>
+      <div class="complaint-meta">
+        <span class="tag ${c.risk === 'high' ? 'risk-high' : 'risk-med'}">${c.risk === 'high' ? 'HIGH RISK' : 'MED RISK'}</span>
+        <span class="tag">${c.bank}</span>
+        ${c.analyzed ? '<span class="tag risk-analyzed">ANALYZED</span>' : ''}
+      </div>
+      <div class="complaint-filed">Filed ${c.filedAgo} · Origin: ${c.originName}</div>
+    </div>
+  `;
+  loadComplaint(c);
+}
+
+document.getElementById('prevBtn').addEventListener('click', () => {
+  activeIndex = (activeIndex - 1 + complaints.length) % complaints.length;
+  renderSingleComplaint();
+});
+document.getElementById('nextBtn').addEventListener('click', () => {
+  activeIndex = (activeIndex + 1) % complaints.length;
+  renderSingleComplaint();
+});
+
+/* ============ SELECT + PREDICT FLOW ============ */
+const mapStatus = document.getElementById('mapStatus');
+const predList = document.getElementById('predList');
+const predCount = document.getElementById('predCount');
+const alertBtn = document.getElementById('alertBtn');
+
+function loadComplaint(c){
+  clearMap();
+  map.setView([c.originLat, c.originLng], 10.6);
+
+  originMarker = L.circleMarker([c.originLat, c.originLng], {
+    radius:7, color:'#F43F5E', weight:2, fillColor:'#F43F5E', fillOpacity:0.9
+  }).addTo(map).bindTooltip('Complaint origin — ' + c.originName, {permanent:false});
+
+  mapStatus.innerHTML = `
+    <div class="map-status-title">${c.id}</div>
+    <div class="map-status-body">Origin: ${c.originName}<br>Amount: ${c.amount} · ${c.bank}</div>
+    <div class="scanning" style="margin-top:9px;">▸ Ready to run model</div>
+  `;
+
+  predList.innerHTML = `
+    <div class="empty-state">
+      <div class="empty-state-title">READY</div>
+      <div class="empty-state-sub">Run the prediction model to rank the top 3 candidate withdrawal sites for ${c.id}.</div>
+    </div>
+  `;
+  predCount.textContent = '—';
+  alertBtn.disabled = true;
+  alertBtn.textContent = 'Dispatch Alert to Top 3 Sites';
+
+  mapStatus.innerHTML += `<div class="action-btn" id="runBtn" style="margin:10px 0 0; padding:8px;">Run Prediction Model</div>`;
+  document.getElementById('runBtn').addEventListener('click', () => analyzeComplaint(c));
+}
+
+function analyzeComplaint(c){
+  mapStatus.innerHTML = `
+    <div class="map-status-title">${c.id} — MODEL RUNNING</div>
+    <div class="scanning">▸ Scoring 15 candidate sites…</div>
+    <div class="scan-bar"></div>
+  `;
+  predList.innerHTML = `<div class="empty-state"><div class="empty-state-title">ANALYZING…</div><div class="empty-state-sub">Weighing distance decay, footfall tier and mule-account withdrawal history.</div></div>`;
+
+  setTimeout(() => {
+    const results = runPrediction(c);
+    c.analyzed = true;
+    renderSingleComplaintMetaOnly();
+
+    clearMap();
+    originMarker = L.circleMarker([c.originLat, c.originLng], {
+      radius:7, color:'#E2E8F0', weight:2, fillColor:'#E2E8F0', fillOpacity:0.9
+    }).addTo(map).bindTooltip('Complaint origin — ' + c.originName);
+
+    const bounds = [[c.originLat, c.originLng]];
+    results.forEach((r, i) => {
+      const color = riskColor(r.prob);
+      const radius = 8 + r.prob * 22;
+      const m = L.circleMarker([r.lat, r.lng], {
+        radius: radius, color: color, weight: 1.5, fillColor: color, fillOpacity: 0.28
+      }).addTo(map);
+      m.bindTooltip(`#${i+1} ${r.name} — ${(r.prob*100).toFixed(0)}%`, {permanent:false});
+      const core = L.circleMarker([r.lat, r.lng], {
+        radius: 4, color: color, weight:1, fillColor: color, fillOpacity: 1
+      }).addTo(map);
+      markers.push(m, core);
+      bounds.push([r.lat, r.lng]);
+    });
+    map.fitBounds(bounds, {padding:[40,40]});
+
+    mapStatus.innerHTML = `
+      <div class="map-status-title">${c.id} — COMPLETE</div>
+      <div class="map-status-body">${results.length} candidate sites scored. Top match ${(results[0].prob*100).toFixed(0)}% probability, ${results[0].distKm.toFixed(1)} km from origin.</div>
+    `;
+
+    predCount.textContent = results.length + ' ranked';
+    predList.innerHTML = '';
+    results.forEach((r, i) => {
+      const item = document.createElement('div');
+      item.className = 'pred-item';
+      item.innerHTML = `
+        <div class="pred-rank">
+          <span class="rank-num">${String(i+1).padStart(2,'0')}</span>
+          <span class="pred-name">${r.name}</span>
+          <span class="pred-pct">${(r.prob*100).toFixed(0)}%</span>
+        </div>
+        <div class="pred-bar-track"><div class="pred-bar-fill" style="background:${riskColor(r.prob)};"></div></div>
+        <div class="pred-sub">
+          <span>${r.distKm.toFixed(1)} km from origin</span>
+          <span>footfall: ${r.tier}</span>
+        </div>
+      `;
+      predList.appendChild(item);
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          item.querySelector('.pred-bar-fill').style.width = (r.prob*100) + '%';
+        }, 60 * i);
+      });
+    });
+    alertBtn.disabled = false;
+    alertBtn.textContent = 'Dispatch Alert to Top 3 Sites';
+    alertBtn.onclick = () => dispatchAlert(c, results);
+  }, 1400);
+}
+
+function renderSingleComplaintMetaOnly(){
+  // refresh just the ANALYZED tag on the active card without resetting the map
+  const c = complaints[activeIndex];
+  const metaEl = singleEl.querySelector('.complaint-meta');
+  if(metaEl && c.analyzed && !metaEl.querySelector('.risk-analyzed')){
+    metaEl.insertAdjacentHTML('beforeend', '<span class="tag risk-analyzed">ANALYZED</span>');
+  }
+}
+
+function dispatchAlert(c, sites){
+  alertBtn.textContent = '✓ Alert Dispatched to ' + sites.length + ' Sites';
+  alertBtn.disabled = true;
+  mapStatus.innerHTML += `<div class="map-status-body" style="margin-top:8px; color:var(--cyan);">✓ Field units notified for: ${sites.map(t=>t.name.split('—')[1] ? t.name.split('—')[1].trim() : t.name).join(', ')}</div>`;
+}
+
+/* ============ INIT ============ */
+renderSingleComplaint();
+</script>
+</body>
+</html>
